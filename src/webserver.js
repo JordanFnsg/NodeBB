@@ -245,17 +245,25 @@ function setupCookie() {
 }
 
 async function listen() {
-	let port = nconf.get('port');
-	const isSocket = isNaN(port) && !Array.isArray(port);
+	const port = getPort();
+	const isSocket = isSocketPort();
 	const socketPath = isSocket ? nconf.get('port') : '';
+	handlePortWarnings(port);
+	const bind_address = getBindAddress();
+	const args = isSocket ? [socketPath] : [port, bind_address];
+	if (isSocket) {
+		await handleSocket(socketPath);
+	}
+	return startServer(args, isSocket, socketPath, port, bind_address);
+}
 
+function getPort() {
+	let port = nconf.get('port');
 	if (Array.isArray(port)) {
 		if (!port.length) {
 			winston.error('[startup] empty ports array in config.json');
 			process.exit();
 		}
-
-		winston.warn('[startup] If you want to start nodebb on multiple ports please use loader.js');
 		winston.warn(`[startup] Defaulting to first port in array, ${port[0]}`);
 		port = port[0];
 		if (!port) {
@@ -263,44 +271,52 @@ async function listen() {
 			process.exit();
 		}
 	}
-	port = parseInt(port, 10);
+	return parseInt(port, 10);
+}
+
+function isSocketPort(port) {
+	return isNaN(port) && !Array.isArray(port);
+}
+
+function handlePortWarnings(port) {
 	if ((port !== 80 && port !== 443) || nconf.get('trust_proxy') === true) {
 		winston.info('🤝 Enabling \'trust proxy\'');
 		app.enable('trust proxy');
 	}
-
 	if ((port === 80 || port === 443) && process.env.NODE_ENV !== 'development') {
 		winston.info('Using ports 80 and 443 is not recommend; use a proxy instead. See README.md');
 	}
+}
 
-	const bind_address = ((nconf.get('bind_address') === '0.0.0.0' || !nconf.get('bind_address')) ? '0.0.0.0' : nconf.get('bind_address'));
-	const args = isSocket ? [socketPath] : [port, bind_address];
-	let oldUmask;
+function getBindAddress() {
+	return (nconf.get('bind_address') === '0.0.0.0' || !nconf.get('bind_address')) ?
+		'0.0.0.0' :
+		nconf.get('bind_address');
+}
 
-	if (isSocket) {
-		oldUmask = process.umask('0000');
-		try {
-			await exports.testSocket(socketPath);
-		} catch (err) {
-			winston.error(`[startup] NodeBB was unable to secure domain socket access (${socketPath})\n${err.stack}`);
-			throw err;
-		}
+async function handleSocket(socketPath) {
+	const oldUmask = process.umask('0000');
+	try {
+		await exports.testSocket(socketPath);
+	} catch (err) {
+		winston.error(`[startup] NodeBB was unable to secure domain socket access (${socketPath})\n${err.stack}`);
+		throw err;
 	}
+	return oldUmask;
+}
 
+function startServer(args, isSocket, socketPath, port, bind_address) {
 	return new Promise((resolve, reject) => {
 		server.listen(...args.concat([function (err) {
 			const onText = `${isSocket ? socketPath : `${bind_address}:${port}`}`;
 			if (err) {
 				winston.error(`[startup] NodeBB was unable to listen on: ${chalk.yellow(onText)}`);
 				reject(err);
+			} else {
+				winston.info(`📡 NodeBB is now listening on: ${chalk.yellow(onText)}`);
+				winston.info(`🔗 Canonical URL: ${chalk.yellow(nconf.get('url'))}`);
+				resolve();
 			}
-
-			winston.info(`📡 NodeBB is now listening on: ${chalk.yellow(onText)}`);
-			winston.info(`🔗 Canonical URL: ${chalk.yellow(nconf.get('url'))}`);
-			if (oldUmask) {
-				process.umask(oldUmask);
-			}
-			resolve();
 		}]));
 	});
 }
