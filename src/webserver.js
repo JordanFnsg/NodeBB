@@ -252,7 +252,7 @@ async function listen() {
 	const bind_address = getBindAddress();
 	const args = isSocket ? [socketPath] : [port, bind_address];
 	if (isSocket) {
-		await handleSocket(socketPath);
+		handleSocket(socketPath);
 	}
 	return startServer(args, isSocket, socketPath, port, bind_address);
 }
