@@ -252,7 +252,13 @@ async function listen() {
 	const bind_address = getBindAddress();
 	const args = isSocket ? [socketPath] : [port, bind_address];
 	if (isSocket) {
-		handleSocket(socketPath);
+		oldUmask = process.umask('0000');
+	try {
+		await exports.testSocket(socketPath);
+	} catch (err) {
+		winston.error(`[startup] NodeBB was unable to secure domain socket access (${socketPath})\n${err.stack}`);
+		throw err;
+	}
 	}
 	return startServer(args, isSocket, socketPath, port, bind_address);
 }
@@ -292,17 +298,6 @@ function getBindAddress() {
 	return (nconf.get('bind_address') === '0.0.0.0' || !nconf.get('bind_address')) ?
 		'0.0.0.0' :
 		nconf.get('bind_address');
-}
-
-async function handleSocket(socketPath) {
-	const oldUmask = process.umask('0000');
-	try {
-		await exports.testSocket(socketPath);
-	} catch (err) {
-		winston.error(`[startup] NodeBB was unable to secure domain socket access (${socketPath})\n${err.stack}`);
-		throw err;
-	}
-	return oldUmask;
 }
 
 function startServer(args, isSocket, socketPath, port, bind_address) {
